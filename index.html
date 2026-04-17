@@ -1404,7 +1404,7 @@
 
     /* 启动 */
     fetch('/stream', { method: 'HEAD' })
-      .then(() => startStream())
+      .then(r => r.ok ? startStream() : runDemo())
       .catch(() => runDemo());
   </script>
 </body>
