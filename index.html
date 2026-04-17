@@ -943,9 +943,12 @@
     let currentSpeakerChar   = '';
     let currentSpeakerName   = '';
 
+    /* ── 模式旗標 ── */
+    let serverMode  = false;    // 是否有後端伺服器
+
     /* ── 暂停状态 ── */
     let paused      = false;
-    let tokenBuffer = [];       // 服务器模式：暂停期间缓冲 token
+    let tokenBuffer = [];
 
     /* ── 工具 ── */
     const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -1148,7 +1151,7 @@
       if (paused) togglePause();           // 先恢复，再清场
       await clearWithFade();
       document.getElementById('topic-display').classList.remove('active');
-      startStream();
+      if (serverMode) startStream(); else runDemo();
     }
 
     /* ── 停止对话 ── */
@@ -1404,7 +1407,7 @@
 
     /* 启动 */
     fetch('/stream', { method: 'HEAD' })
-      .then(r => r.ok ? startStream() : runDemo())
+      .then(r => { if (r.ok) { serverMode = true; startStream(); } else runDemo(); })
       .catch(() => runDemo());
   </script>
 </body>
