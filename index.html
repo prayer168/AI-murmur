@@ -1238,14 +1238,6 @@
     }
 
     /* ══ 演示模式（无服务器时） ══ */
-    const DEMO = [
-      { char:'char-a', name:'暗', text:'如果時間能倒流，我只想回到那個還不知道結局的瞬間。' },
-      { char:'char-b', name:'明', text:'正因為知道了結局，那個瞬間才變得如此珍貴，不是嗎？' },
-      { char:'char-a', name:'暗', text:'珍貴的東西總是因為失去才被看見，這本身就是一種悲劇。' },
-      { char:'char-b', name:'明', text:'也許悲劇只是還沒講完的故事。我選擇等待下一頁。' },
-      { char:'char-a', name:'暗', text:'下一頁可能是空白。' },
-      { char:'char-b', name:'明', text:'空白也是一種可能性——那是留給我們自己書寫的地方。' },
-    ];
 
     /* 字符速度：标点后稍停，普通字符随机节奏 */
     function charDelay(ch) {
@@ -1254,26 +1246,13 @@
       return 48 + Math.random() * 38;
     }
 
-    /* demo 话题轮转池（第一轮 + 后续随机） */
-    const DEMO_TOPICS = [
-      { topic: '如果時間可以倒流',   msgs: DEMO },
-      { topic: '孤獨是詛咒還是禮物', msgs: [
-          { char:'char-a', name:'暗', text:'孤獨是我唯一誠實的朋友，它從不假裝理解我。' },
-          { char:'char-b', name:'明', text:'也許正因為孤獨，我們才學會了與自己對話。' },
-          { char:'char-a', name:'暗', text:'與自己對話，卻常常得不到回答。' },
-          { char:'char-b', name:'明', text:'沉默本身就是一種回答，只是我們還沒學會聆聽。' },
-          { char:'char-a', name:'暗', text:'聆聽沉默，聽到的只是更深的空洞。' },
-          { char:'char-b', name:'明', text:'空洞裡有回聲——那是你自己的聲音，在等待被聽見。' },
-      ]},
-      { topic: '沉默比語言更誠實嗎', msgs: [
-          { char:'char-a', name:'暗', text:'語言是謊言最好的藏身之處。' },
-          { char:'char-b', name:'明', text:'但語言也是愛最遠的旅行方式。' },
-          { char:'char-a', name:'暗', text:'愛說出口的瞬間，就開始失真了。' },
-          { char:'char-b', name:'明', text:'失真也是一種傳遞，總比什麼都不說要好。' },
-          { char:'char-a', name:'暗', text:'沉默至少是真的。' },
-          { char:'char-b', name:'明', text:'真的，但孤獨。我寧願不完美的語言。' },
-      ]},
-    ];
+    function shuffle(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
 
     let demoStopped = false;
 
@@ -1282,38 +1261,44 @@
       document.getElementById('pause-btn').textContent = '⏸';
       setStatus('live', '示範中');
 
-      let idx = 0;
-      while (!demoStopped) {
-        const { topic, msgs } = DEMO_TOPICS[idx % DEMO_TOPICS.length];
-        animateTopic('「' + topic + '」');
+      const topicData = TOPIC_POOL[Math.floor(Math.random() * TOPIC_POOL.length)];
+      animateTopic('「' + topicData.topic + '」');
 
-        for (const msg of msgs) {
+      const aPool = shuffle([...topicData.a]);
+      const bPool = shuffle([...topicData.b]);
+      let turn = 0;
+
+      while (!demoStopped) {
+        const isA = (turn % 2 === 0);
+        const pool = isA ? aPool : bPool;
+        const idx = Math.floor(turn / 2) % pool.length;
+        const charClass = isA ? 'char-a' : 'char-b';
+        const name = isA ? charConfig.a.name : charConfig.b.name;
+        const text = pool[idx];
+
+        if (idx === 0 && turn > 1) shuffle(pool);
+
+        await waitResume();
+        if (demoStopped) break;
+        addMessage(charClass, name);
+        await pauseableSleep(600);
+        await waitResume();
+        if (demoStopped) break;
+        activateCursor();
+        for (const ch of text) {
           if (demoStopped) break;
           await waitResume();
-          addMessage(msg.char, msg.name);
-          await pauseableSleep(600);
-          await waitResume();
-          activateCursor();
-          for (const ch of msg.text) {
-            if (demoStopped) break;
-            await waitResume();
-            if (currentTextEl && currentCursor)
-              currentTextEl.insertBefore(document.createTextNode(ch), currentCursor);
-            await pauseableSleep(charDelay(ch));
-          }
-          if (currentCursor) { currentCursor.remove(); currentCursor = null; }
-          currentSessionMsgs.push({ char: msg.char, name: msg.name, text: msg.text });
-          currentTextEl = null;
-          if (!demoStopped) await pauseableSleep(900);
+          if (currentTextEl && currentCursor)
+            currentTextEl.insertBefore(document.createTextNode(ch), currentCursor);
+          await pauseableSleep(charDelay(ch));
         }
-
+        if (currentCursor) { currentCursor.remove(); currentCursor = null; }
         if (!demoStopped) {
-          saveToHistory();
-          currentSessionMsgs = [];
-          idx++;
-          await clearWithFade();
-          await pauseableSleep(400);
+          currentSessionMsgs.push({ char: charClass, name, text });
+          currentTextEl = null;
+          await pauseableSleep(900);
         }
+        turn++;
       }
     }
 
@@ -1410,5 +1395,6 @@
       .then(r => { if (r.ok) { serverMode = true; startStream(); } else runDemo(); })
       .catch(() => runDemo());
   </script>
+  <script src="demo-data.js"></script>
 </body>
 </html>
