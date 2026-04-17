@@ -1,0 +1,1411 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI · 喃喃</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg:      #e8ddc4;   /* 宣纸黄 */
+      --paper:   #f5edd8;   /* 米白宣 */
+      --border:  #cec0a0;
+      --muted:   #a89878;
+      --dim:     #706040;
+      --text:    #1a0e06;   /* 墨色 */
+      --a-color: #2e5c38;   /* 青碧墨 */
+      --b-color: #962018;   /* 朱砂红 */
+      --a-text:  #1a3c22;
+      --b-text:  #761008;
+      --a-bg:    #eaf2e6;
+      --b-bg:    #f8ece8;
+      --a-bd:    #b0cca8;
+      --b-bd:    #ddb8b0;
+    }
+
+    /* ══ Body + 纸张纹理 ══ */
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: 'Georgia', 'Noto Serif SC', serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* 宣纸纤维纹理 */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.55 0 0 0 0 0.45 0 0 0 0 0.28 0 0 0 0.07 0'/%3E%3C/filter%3E%3Crect width='400' height='400' filter='url(%23g)'/%3E%3C/svg%3E"),
+        repeating-linear-gradient(
+          180deg,
+          transparent 0px, transparent 47px,
+          rgba(140,110,60,0.055) 47px, rgba(140,110,60,0.055) 48px
+        );
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* 四角墨染晕染 */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(ellipse 85% 75% at 50% 50%,
+        transparent 50%, rgba(40,25,8,0.18) 100%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ══ Header ══ */
+    #header {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 13px 36px;
+      background: linear-gradient(180deg, var(--paper) 0%, rgba(245,237,216,0.96) 100%);
+      backdrop-filter: blur(8px);
+      border-bottom: 2px solid var(--border);
+      box-shadow: 0 1px 0 rgba(140,110,60,0.12), 0 3px 12px rgba(40,20,0,0.08);
+      gap: 16px;
+      position: relative;
+      z-index: 10;
+    }
+    /* 顶部朱砂细线 */
+    #header::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent 5%, #962018 30%, #962018 70%, transparent 95%);
+      opacity: 0.35;
+    }
+
+    #app-title {
+      font-size: 11px;
+      letter-spacing: 5px;
+      color: var(--muted);
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    #topic-wrap { flex: 1; text-align: center; overflow: hidden; }
+
+    #topic-display {
+      font-size: 13px;
+      color: var(--muted);
+      font-style: italic;
+      letter-spacing: 1px;
+      transition: color 0.8s, opacity 0.4s;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: inline-block;
+      max-width: 100%;
+    }
+    #topic-display.active { color: var(--dim); }
+    #topic-display.changing { opacity: 0; }
+
+    #new-btn {
+      flex-shrink: 0;
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--dim);
+      padding: 6px 18px;
+      font-size: 11px;
+      letter-spacing: 3px;
+      cursor: pointer;
+      transition: all 0.25s;
+      font-family: inherit;
+      border-radius: 2px;
+    }
+    #new-btn:hover { border-color: var(--dim); color: var(--text); background: rgba(0,0,0,0.03); }
+    #new-btn:active { transform: scale(0.97); }
+
+    /* ══ Conversation ══ */
+    #conversation {
+      flex: 1;
+      overflow: hidden;
+      padding: 32px 52px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      gap: 0;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ══ Message 卡片 ══ */
+    .message {
+      max-width: 520px;
+      padding: 14px 20px;
+      border-radius: 8px;
+      position: relative;
+      margin-bottom: 14px;
+      transition:
+        opacity      0.65s ease,
+        filter       0.65s ease,
+        transform    0.65s ease,
+        margin-bottom 0.5s ease,
+        box-shadow   0.65s ease;
+    }
+
+    /* 入场：左右弹入 + 弹簧感 */
+    .message.char-a {
+      align-self: flex-start;
+      background: linear-gradient(135deg, var(--a-bg) 0%, #f0f5ec 100%);
+      border: 1px solid var(--a-bd);
+      border-left: 3px solid var(--a-color);
+      animation: enterLeft 0.52s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+      opacity: 0;
+    }
+    .message.char-b {
+      align-self: flex-end;
+      background: linear-gradient(225deg, var(--b-bg) 0%, #f8ede6 100%);
+      border: 1px solid var(--b-bd);
+      border-right: 3px solid var(--b-color);
+      text-align: right;
+      animation: enterRight 0.52s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+      opacity: 0;
+    }
+
+    /* 清场淡出 */
+    .message.clearing {
+      opacity: 0 !important;
+      transform: translateY(-10px) scale(0.97) !important;
+      filter: blur(3px) !important;
+      pointer-events: none;
+    }
+
+    /* ── 深度层级 ── */
+    .message.depth-0 {
+      opacity: 1;
+      filter: blur(0px);
+      transform: scale(1);
+      box-shadow: 0 4px 22px rgba(0,0,0,0.11);
+    }
+    .message.depth-1 {
+      opacity: 0.70;
+      filter: blur(0.5px);
+      transform: scale(0.99);
+      box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+    }
+    .message.depth-2 {
+      opacity: 0.44;
+      filter: blur(1.4px);
+      transform: scale(0.982);
+      box-shadow: 0 1px 5px rgba(0,0,0,0.04);
+    }
+    .message.depth-3 {
+      opacity: 0.22;
+      filter: blur(2.8px);
+      transform: scale(0.974);
+      box-shadow: none;
+      margin-bottom: 10px;
+    }
+    .message.depth-4 {
+      opacity: 0.08;
+      filter: blur(4.5px);
+      transform: scale(0.967);
+      box-shadow: none;
+      margin-bottom: 6px;
+    }
+    .message.depth-hidden {
+      opacity: 0;
+      filter: blur(7px);
+      transform: scale(0.96) translateY(-6px);
+      pointer-events: none;
+      margin-bottom: 0;
+      max-height: 0;
+      padding-top: 0;
+      padding-bottom: 0;
+      overflow: hidden;
+    }
+
+    /* ── Speaker label ── */
+    .speaker-label {
+      font-size: 10px;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      margin-bottom: 7px;
+    }
+    .char-a .speaker-label { color: var(--a-color); }
+    .char-b .speaker-label { color: var(--b-color); }
+
+    /* ── 正文 ── */
+    .message-text {
+      font-size: 15px;
+      line-height: 1.9;
+      letter-spacing: 0.3px;
+      min-height: 1.5em;
+    }
+    .char-a .message-text { color: var(--a-text); }
+    .char-b .message-text { color: var(--b-text); }
+
+    /* ── 打字光标 ── */
+    .cursor {
+      display: inline-block;
+      width: 1.5px;
+      height: 0.88em;
+      vertical-align: middle;
+      margin-left: 1px;
+      animation: blink 0.72s step-end infinite;
+    }
+    .char-a .cursor { background: var(--a-color); }
+    .char-b .cursor { background: var(--b-color); }
+
+    /* ── 思考指示器（三个跳动点） ── */
+    .typing-dots {
+      display: inline-flex;
+      gap: 4px;
+      align-items: center;
+      height: 1.5em;
+      vertical-align: middle;
+    }
+    .typing-dots span {
+      display: block;
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      animation: dotBounce 1.1s ease-in-out infinite;
+    }
+    .char-a .typing-dots span { background: var(--a-color); }
+    .char-b .typing-dots span { background: var(--b-color); }
+    .typing-dots span:nth-child(2) { animation-delay: 0.18s; }
+    .typing-dots span:nth-child(3) { animation-delay: 0.36s; }
+
+    /* ══ Legend ══ */
+    #legend {
+      flex-shrink: 0;
+      display: flex;
+      justify-content: center;
+      gap: 40px;
+      padding: 9px;
+      background: linear-gradient(0deg, var(--paper) 0%, rgba(245,237,216,0.92) 100%);
+      border-top: 1px solid var(--border);
+      position: relative;
+      z-index: 2;
+    }
+    #legend::before {
+      content: '· · ·';
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%,-50%);
+      color: var(--border);
+      font-size: 10px;
+      letter-spacing: 6px;
+      pointer-events: none;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      letter-spacing: 2px;
+      color: var(--dim);
+    }
+    .legend-dot { width: 6px; height: 6px; border-radius: 50%; }
+    .legend-dot.a { background: var(--a-color); }
+    .legend-dot.b { background: var(--b-color); }
+
+    /* ══ Status bar ══ */
+    #status-bar {
+      flex-shrink: 0;
+      padding: 8px 36px;
+      font-size: 10px;
+      letter-spacing: 3px;
+      color: var(--muted);
+      background: var(--paper);
+      border-top: 2px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      position: relative;
+      z-index: 2;
+    }
+    #status-dot {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+      transition: background 0.4s;
+    }
+    #status-dot.live   { background: #5a9a5a; animation: pulse 2.2s ease-in-out infinite; }
+    #status-dot.paused { background: #9a8a4a; }
+    #status-dot.error  { background: #9a4a4a; }
+
+    /* ── 暂停按钮 ── */
+    #pause-btn {
+      margin-left: auto;
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--dim);
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px;
+      transition: all 0.22s;
+      flex-shrink: 0;
+    }
+    #pause-btn:hover { border-color: var(--dim); color: var(--text); }
+    #pause-btn:active { transform: scale(0.93); }
+    #pause-btn.is-paused { border-color: #9a8a4a; color: #9a8a4a; }
+
+    #stop-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--dim);
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 9px;
+      transition: all 0.22s;
+      flex-shrink: 0;
+    }
+    #stop-btn:hover  { border-color: #9a4a4a; color: #9a4a4a; }
+    #stop-btn:active { transform: scale(0.93); }
+
+    /* 暂停时：当前卡片边框脉动 */
+    body.paused .message.depth-0 {
+      animation: pauseGlow 1.8s ease-in-out infinite;
+    }
+    /* 暂停时：冻结所有打字动画 */
+    body.paused .cursor,
+    body.paused .typing-dots span {
+      animation-play-state: paused;
+    }
+
+    /* ══ Keyframes ══ */
+    @keyframes enterLeft {
+      from { opacity: 0; transform: translateX(-22px) scale(0.97); }
+      to   { opacity: 1; transform: translateX(0)     scale(1); }
+    }
+    @keyframes enterRight {
+      from { opacity: 0; transform: translateX(22px) scale(0.97); }
+      to   { opacity: 1; transform: translateX(0)    scale(1); }
+    }
+    @keyframes blink     { 0%,100%{opacity:1} 50%{opacity:0} }
+    @keyframes pulse     { 0%,100%{opacity:1} 50%{opacity:0.3} }
+    @keyframes dotBounce {
+      0%,80%,100% { transform: translateY(0);    opacity: 0.5; }
+      40%         { transform: translateY(-5px); opacity: 1; }
+    }
+    /* ══ 移动端适配 ══ */
+    @media (max-width: 640px) {
+
+      /* Header：压缩，隐藏标题文字 */
+      #header {
+        padding: 10px 14px;
+        gap: 8px;
+      }
+      #app-title { display: none; }
+      #topic-display { font-size: 12px; }
+      #new-btn, #settings-btn, #history-btn {
+        padding: 6px 10px;
+        font-size: 12px;
+        letter-spacing: 1px;
+      }
+
+      /* 对话区：减少内边距 */
+      #conversation {
+        padding: 20px 16px;
+      }
+
+      /* 消息卡片：撑满大部分宽度 */
+      .message {
+        max-width: 80vw;
+        padding: 11px 14px;
+      }
+
+      /* 消息行：缩小头像间距 */
+      .message-row { gap: 6px; margin-bottom: 10px; }
+
+      /* 头像：缩小 */
+      .avatar {
+        width: 32px; height: 32px;
+        font-size: 14px;
+      }
+
+      /* 正文字体稍小 */
+      .message-text { font-size: 14px; line-height: 1.8; }
+
+      /* Legend：收紧 */
+      #legend { gap: 20px; padding: 8px; }
+      .legend-item { font-size: 10px; letter-spacing: 1px; }
+
+      /* 状态栏 */
+      #status-bar { padding: 6px 14px; }
+
+      /* 历史/设置面板：全屏宽 */
+      #history-panel  { width: 100%; }
+      #settings-panel { width: 100%; }
+
+      /* 面板内部间距收紧 */
+      .panel-body     { padding: 16px; gap: 20px; }
+      .panel-header   { padding: 14px 16px 12px; }
+      .panel-footer   { padding: 12px 16px; }
+
+      /* 暂停/停止按钮触控目标放大 */
+      #pause-btn, #stop-btn {
+        width: 34px; height: 34px;
+      }
+    }
+
+    /* 超小屏 (<380px)：进一步压缩 */
+    @media (max-width: 380px) {
+      .message  { max-width: 88vw; }
+      #new-btn  { display: none; }   /* 换话题藏起，靠设置面板内"应用重启"代替 */
+    }
+
+    @keyframes pauseGlow {
+      0%,100% { box-shadow: 0 4px 22px rgba(0,0,0,0.11), 0 0 0 0px rgba(154,138,74,0); }
+      50%     { box-shadow: 0 4px 22px rgba(0,0,0,0.11), 0 0 0 3px rgba(154,138,74,0.35); }
+    }
+    @keyframes slideIn  { from { transform: translateX(100%); } to { transform: translateX(0); } }
+    @keyframes slideOut { from { transform: translateX(0); }    to { transform: translateX(100%); } }
+
+    /* ══ 头像 ══ */
+    .message-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .message-row.char-a { justify-content: flex-start; }
+    .message-row.char-b { justify-content: flex-end; flex-direction: row-reverse; }
+
+    /* message 本身不再自带 margin-bottom，由 row 接管 */
+    .message { margin-bottom: 0; }
+
+    .avatar {
+      width: 38px; height: 38px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 17px;
+      flex-shrink: 0;
+      user-select: none;
+      transition: filter 0.65s ease, opacity 0.65s ease, transform 0.65s ease;
+    }
+    .char-a .avatar {
+      background: radial-gradient(135deg at 35% 35%, #5a8ab8 0%, #1e3a58 100%);
+      box-shadow: 0 2px 8px rgba(30,58,88,0.30);
+    }
+    .char-b .avatar {
+      background: radial-gradient(135deg at 35% 35%, #d4a050 0%, #7c4c10 100%);
+      box-shadow: 0 2px 8px rgba(124,76,16,0.28);
+    }
+
+    /* 头像跟随深度淡化 */
+    .message-row.depth-0 .avatar { opacity: 1;    filter: blur(0);    transform: scale(1); }
+    .message-row.depth-1 .avatar { opacity: 0.70; filter: blur(0.4px); transform: scale(0.99); }
+    .message-row.depth-2 .avatar { opacity: 0.44; filter: blur(1.2px); transform: scale(0.98); }
+    .message-row.depth-3 .avatar { opacity: 0.22; filter: blur(2px);   transform: scale(0.97); }
+    .message-row.depth-4 .avatar { opacity: 0.08; filter: blur(3.5px); transform: scale(0.96); }
+    .message-row.depth-hidden     { display: none; }
+
+    /* ══ 历史面板 ══ */
+    #history-panel {
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      width: 320px;
+      background: var(--paper);
+      border-right: 1px solid var(--border);
+      box-shadow: 4px 0 24px rgba(0,0,0,0.10);
+      z-index: 101;
+      display: flex;
+      flex-direction: column;
+      transform: translateX(-100%);
+      transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    #history-panel.open { transform: translateX(0); }
+
+    #history-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 0;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    .history-empty {
+      padding: 48px 24px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 2px;
+      line-height: 2;
+    }
+
+    /* 每条历史记录 */
+    .history-item {
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .history-item:last-child { border-bottom: none; }
+
+    .history-item-header {
+      padding: 14px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      transition: background 0.2s;
+    }
+    .history-item-header:hover { background: rgba(0,0,0,0.03); }
+
+    .history-topic {
+      font-size: 13px;
+      color: var(--text);
+      letter-spacing: 0.3px;
+      line-height: 1.5;
+    }
+    .history-meta {
+      display: flex;
+      gap: 12px;
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: var(--muted);
+    }
+
+    /* 展开的消息列表 */
+    .history-messages {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.4s ease;
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+    }
+    .history-item.expanded .history-messages {
+      max-height: 600px;
+    }
+    .history-msg {
+      padding: 10px 20px;
+      font-size: 12px;
+      line-height: 1.7;
+      border-bottom: 1px solid rgba(0,0,0,0.05);
+      display: flex;
+      gap: 8px;
+      align-items: baseline;
+    }
+    .history-msg:last-child { border-bottom: none; }
+    .history-msg-name {
+      font-size: 9px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .history-msg.char-a .history-msg-name { color: var(--a-color); }
+    .history-msg.char-b .history-msg-name { color: var(--b-color); }
+    .history-msg-text { color: var(--dim); }
+
+    /* 历史按钮 */
+    #history-btn {
+      flex-shrink: 0;
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--dim);
+      padding: 6px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.25s;
+      border-radius: 2px;
+    }
+    #history-btn:hover { border-color: var(--dim); color: var(--text); }
+    #history-btn.has-history { color: var(--a-color); border-color: var(--a-bd); }
+
+    /* ══ 设置按钮 ══ */
+    #settings-btn {
+      flex-shrink: 0;
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--dim);
+      padding: 6px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.25s;
+      border-radius: 2px;
+    }
+    #settings-btn:hover { border-color: var(--dim); color: var(--text); }
+
+    /* ══ 遮罩 ══ */
+    #overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(20,15,8,0.3);
+      backdrop-filter: blur(2px);
+      z-index: 100;
+    }
+    #overlay.open { display: block; }
+
+    /* ══ 设置面板 ══ */
+    #settings-panel {
+      position: fixed;
+      top: 0; right: 0; bottom: 0;
+      width: 360px;
+      background: var(--paper);
+      border-left: 1px solid var(--border);
+      box-shadow: -4px 0 24px rgba(0,0,0,0.12);
+      z-index: 101;
+      display: flex;
+      flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      overflow: hidden;
+    }
+    #settings-panel.open { transform: translateX(0); }
+
+    .panel-header {
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .panel-title {
+      font-size: 11px;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      color: var(--dim);
+    }
+    .panel-close {
+      background: none; border: none;
+      color: var(--muted); font-size: 18px;
+      cursor: pointer; line-height: 1;
+      padding: 2px 6px;
+      transition: color 0.2s;
+    }
+    .panel-close:hover { color: var(--text); }
+
+    .panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    /* ── 单个角色区块 ── */
+    .char-section { display: flex; flex-direction: column; gap: 12px; }
+
+    .char-section-title {
+      font-size: 10px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .char-section.a .char-section-title { color: var(--a-color); }
+    .char-section.b .char-section-title { color: var(--b-color); }
+
+    .field-label {
+      font-size: 11px;
+      letter-spacing: 2px;
+      color: var(--dim);
+      margin-bottom: 5px;
+    }
+
+    .panel-input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      padding: 8px 12px;
+      border-radius: 3px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .panel-input:focus { border-color: var(--dim); }
+
+    textarea.panel-input {
+      resize: vertical;
+      min-height: 72px;
+      line-height: 1.6;
+    }
+
+    /* ── 预设标签 ── */
+    .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+
+    .preset-tag {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--dim);
+      font-family: inherit;
+      font-size: 11px;
+      letter-spacing: 1px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .preset-tag:hover { border-color: var(--dim); color: var(--text); }
+    .preset-tag.active { background: var(--dim); color: var(--paper); border-color: var(--dim); }
+
+    /* ── 应用按钮 ── */
+    .panel-footer {
+      padding: 16px 24px;
+      border-top: 1px solid var(--border);
+    }
+    #apply-btn {
+      width: 100%;
+      background: var(--text);
+      color: var(--paper);
+      border: none;
+      font-family: inherit;
+      font-size: 12px;
+      letter-spacing: 3px;
+      padding: 12px;
+      cursor: pointer;
+      border-radius: 3px;
+      transition: opacity 0.2s, transform 0.15s;
+    }
+    #apply-btn:hover  { opacity: 0.85; }
+    #apply-btn:active { transform: scale(0.98); }
+  </style>
+</head>
+<body>
+
+  <div id="header">
+    <span id="app-title">AI · 喃喃</span>
+    <div id="topic-wrap">
+      <span id="topic-display">——</span>
+    </div>
+    <button id="history-btn" onclick="openHistory()" title="話題歷史">☰</button>
+    <button id="new-btn" onclick="newTopic()">換個話題</button>
+    <button id="settings-btn" onclick="openSettings()" title="角色設定">⚙</button>
+  </div>
+
+  <!-- 古风竹子装饰（左下角） -->
+  <svg id="bg-bamboo" xmlns="http://www.w3.org/2000/svg"
+       viewBox="0 0 220 460"
+       style="position:fixed;left:0;bottom:0;width:220px;height:460px;
+              pointer-events:none;z-index:0;opacity:0.10">
+    <!-- 竹竿 1（主干） -->
+    <rect x="32" y="0" width="13" height="460" rx="3" fill="#4a5e28"/>
+    <rect x="30" y="75"  width="17" height="5" rx="2" fill="#3a4e20"/>
+    <rect x="30" y="185" width="17" height="5" rx="2" fill="#3a4e20"/>
+    <rect x="30" y="305" width="17" height="5" rx="2" fill="#3a4e20"/>
+    <rect x="30" y="410" width="17" height="5" rx="2" fill="#3a4e20"/>
+    <!-- 叶片 from 竹竿 1 -->
+    <path d="M45 70  Q95  42 108  10"  fill="none" stroke="#4a5e28" stroke-width="3" stroke-linecap="round"/>
+    <path d="M45 72  Q105 60 122  40"  fill="none" stroke="#4a5e28" stroke-width="2" stroke-linecap="round"/>
+    <path d="M32 180 Q-18 148 -30 115" fill="none" stroke="#4a5e28" stroke-width="3" stroke-linecap="round"/>
+    <path d="M32 183 Q-8  168 -18 148" fill="none" stroke="#4a5e28" stroke-width="2" stroke-linecap="round"/>
+    <path d="M45 300 Q90  268  98 235"  fill="none" stroke="#4a5e28" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M32 408 Q-12 378 -22 348" fill="none" stroke="#4a5e28" stroke-width="2" stroke-linecap="round"/>
+    <!-- 竹竿 2 -->
+    <rect x="72" y="25"  width="10" height="435" rx="2.5" fill="#566830"/>
+    <rect x="70" y="135" width="14" height="4" rx="2" fill="#465828"/>
+    <rect x="70" y="258" width="14" height="4" rx="2" fill="#465828"/>
+    <rect x="70" y="378" width="14" height="4" rx="2" fill="#465828"/>
+    <path d="M72 130  Q22  100  10 68"  fill="none" stroke="#566830" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M82 132  Q128 105 138 76"  fill="none" stroke="#566830" stroke-width="2"   stroke-linecap="round"/>
+    <path d="M82 255  Q125 228 134 198" fill="none" stroke="#566830" stroke-width="2"   stroke-linecap="round"/>
+    <path d="M72 375  Q25  345  12 315" fill="none" stroke="#566830" stroke-width="2"   stroke-linecap="round"/>
+    <!-- 竹竿 3（背景，细） -->
+    <rect x="108" y="55" width="8" height="405" rx="2" fill="#627038"/>
+    <rect x="106" y="195" width="12" height="3" rx="1.5" fill="#526030"/>
+    <rect x="106" y="330" width="12" height="3" rx="1.5" fill="#526030"/>
+    <path d="M108 191 Q60 162 46 134"  fill="none" stroke="#627038" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M116 193 Q158 166 166 138" fill="none" stroke="#627038" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M116 327 Q158 300 165 272" fill="none" stroke="#627038" stroke-width="1.5" stroke-linecap="round"/>
+  </svg>
+
+  <!-- 右上角印章装饰 -->
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"
+       style="position:fixed;right:18px;top:68px;width:72px;height:72px;
+              pointer-events:none;z-index:0;opacity:0.07">
+    <rect x="8" y="8" width="104" height="104" rx="4"
+          fill="none" stroke="#962018" stroke-width="4"/>
+    <rect x="16" y="16" width="88" height="88" rx="2"
+          fill="none" stroke="#962018" stroke-width="1.5"/>
+    <text x="60" y="52" font-size="28" font-family="serif"
+          text-anchor="middle" fill="#962018" letter-spacing="2">喃</text>
+    <text x="60" y="86" font-size="28" font-family="serif"
+          text-anchor="middle" fill="#962018" letter-spacing="2">喃</text>
+  </svg>
+
+  <!-- 遮罩（历史/设置共用） -->
+  <div id="overlay" onclick="closeAllPanels()"></div>
+
+  <!-- 历史面板 -->
+  <div id="history-panel">
+    <div class="panel-header">
+      <span class="panel-title">話題歷史</span>
+      <button class="panel-close" onclick="closeHistory()">×</button>
+    </div>
+    <div id="history-list">
+      <div class="history-empty">還沒有歷史記錄<br>換個話題後會自動存檔</div>
+    </div>
+  </div>
+
+  <!-- 设置面板 -->
+  <div id="settings-panel">
+    <div class="panel-header">
+      <span class="panel-title">角色設定</span>
+      <button class="panel-close" onclick="closeSettings()">×</button>
+    </div>
+    <div class="panel-body">
+
+      <!-- 角色 A -->
+      <div class="char-section a">
+        <div class="char-section-title">角色一（左側）</div>
+        <div style="display:flex;gap:10px">
+          <div style="flex:1">
+            <div class="field-label">名字</div>
+            <input id="a-name" class="panel-input" type="text" maxlength="8" placeholder="暗">
+          </div>
+          <div style="width:72px">
+            <div class="field-label">頭像</div>
+            <input id="a-avatar" class="panel-input" type="text" maxlength="2" placeholder="🌑" style="text-align:center;font-size:18px">
+          </div>
+        </div>
+        <div>
+          <div class="field-label">性格預設</div>
+          <div class="presets" id="a-presets"></div>
+        </div>
+        <div>
+          <div class="field-label">自訂性格描述</div>
+          <textarea id="a-persona" class="panel-input" placeholder="用幾句話描述這個角色的說話方式和世界觀…"></textarea>
+        </div>
+      </div>
+
+      <!-- 角色 B -->
+      <div class="char-section b">
+        <div class="char-section-title">角色二（右側）</div>
+        <div style="display:flex;gap:10px">
+          <div style="flex:1">
+            <div class="field-label">名字</div>
+            <input id="b-name" class="panel-input" type="text" maxlength="8" placeholder="明">
+          </div>
+          <div style="width:72px">
+            <div class="field-label">頭像</div>
+            <input id="b-avatar" class="panel-input" type="text" maxlength="2" placeholder="☀️" style="text-align:center;font-size:18px">
+          </div>
+        </div>
+        <div>
+          <div class="field-label">性格預設</div>
+          <div class="presets" id="b-presets"></div>
+        </div>
+        <div>
+          <div class="field-label">自訂性格描述</div>
+          <textarea id="b-persona" class="panel-input" placeholder="用幾句話描述這個角色的說話方式和世界觀…"></textarea>
+        </div>
+      </div>
+
+    </div>
+    <div class="panel-footer">
+      <button id="apply-btn" onclick="applySettings()">套用並重啟對話</button>
+    </div>
+  </div>
+
+  <div id="conversation"></div>
+
+  <div id="legend">
+    <div class="legend-item"><div class="legend-dot a"></div><span id="legend-a">暗 · 悲觀主義者</span></div>
+    <div class="legend-item"><div class="legend-dot b"></div><span id="legend-b">明 · 樂觀主義者</span></div>
+  </div>
+
+  <div id="status-bar">
+    <div id="status-dot"></div>
+    <span id="status-text">正在連接…</span>
+    <button id="pause-btn" onclick="togglePause()" title="空白鍵暫停／繼續">⏸</button>
+    <button id="stop-btn"  onclick="stopConversation()" title="停止對話">■</button>
+  </div>
+
+  <script>
+    const DEPTH = ['depth-0','depth-1','depth-2','depth-3','depth-4','depth-hidden'];
+
+    let es = null;
+    let currentTextEl   = null;
+    let currentCursor   = null;
+    let currentDots     = null;
+    let firstToken      = false;
+    let allMessages     = [];
+
+    /* ── 历史记录 ── */
+    const historyLog          = [];
+    let currentSessionMsgs    = [];   // 当前对话的消息文本快照
+    let currentSessionTopic   = '';
+    let currentMsgText        = '';
+    let currentSpeakerChar   = '';
+    let currentSpeakerName   = '';
+
+    /* ── 暂停状态 ── */
+    let paused      = false;
+    let tokenBuffer = [];       // 服务器模式：暂停期间缓冲 token
+
+    /* ── 工具 ── */
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+    /* 可暂停的 sleep：暂停时时间冻结 */
+    async function pauseableSleep(ms) {
+      let elapsed = 0;
+      const tick  = 16;
+      while (elapsed < ms) {
+        await sleep(tick);
+        if (!paused) elapsed += tick;
+      }
+    }
+
+    /* 可暂停的等待：直到 paused 解除 */
+    async function waitResume() {
+      while (paused) await sleep(50);
+    }
+
+    /* ── 暂停 / 继续 ── */
+    function togglePause() {
+      paused = !paused;
+      const btn = document.getElementById('pause-btn');
+      if (paused) {
+        document.body.classList.add('paused');
+        btn.textContent = '▶';
+        btn.classList.add('is-paused');
+        setStatus('paused', '已暫停');
+      } else {
+        document.body.classList.remove('paused');
+        btn.textContent = '⏸';
+        btn.classList.remove('is-paused');
+        setStatus('live', '竊聽中');
+        flushTokenBuffer();
+      }
+    }
+
+    /* 恢复时回放缓冲 token（服务器模式） */
+    async function flushTokenBuffer() {
+      const buf = tokenBuffer.splice(0);
+      for (const token of buf) {
+        if (paused) { tokenBuffer.unshift(...buf.slice(buf.indexOf(token))); break; }
+        activateCursor();
+        if (currentTextEl && currentCursor)
+          currentTextEl.insertBefore(document.createTextNode(token), currentCursor);
+        await sleep(28);
+      }
+    }
+
+    /* 空格键快捷键 */
+    document.addEventListener('keydown', e => {
+      if (e.code === 'Space' && e.target === document.body) {
+        e.preventDefault();
+        togglePause();
+      }
+    });
+
+    function setStatus(state, text) {
+      document.getElementById('status-dot').className = state;
+      document.getElementById('status-text').textContent = text;
+    }
+
+    function reassignDepths() {
+      const last = allMessages.length - 1;
+      allMessages.forEach((m, i) => {
+        DEPTH.forEach(c => m.classList.remove(c));
+        m.classList.add(DEPTH[Math.min(last - i, DEPTH.length - 1)]);
+      });
+    }
+
+    /* 创建带头像的消息行 */
+    function addMessage(charClass, name) {
+      const side = charClass === 'char-a' ? 'a' : 'b';
+      const emoji = charConfig[side].avatar || (side === 'a' ? '🌑' : '☀️');
+
+      /* 行容器（负责对齐 + 深度） */
+      const row = document.createElement('div');
+      row.className = 'message-row ' + charClass;
+
+      /* 头像 */
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar';
+      avatar.textContent = emoji;
+
+      /* 消息卡片 */
+      const wrap = document.createElement('div');
+      wrap.className = 'message ' + charClass;
+
+      const label = document.createElement('div');
+      label.className = 'speaker-label';
+      label.textContent = name;
+
+      const textEl = document.createElement('div');
+      textEl.className = 'message-text';
+
+      const dots = document.createElement('span');
+      dots.className = 'typing-dots';
+      dots.innerHTML = '<span></span><span></span><span></span>';
+      textEl.appendChild(dots);
+
+      wrap.appendChild(label);
+      wrap.appendChild(textEl);
+      row.appendChild(avatar);
+      row.appendChild(wrap);
+      document.getElementById('conversation').appendChild(row);
+
+      allMessages.push(row);
+      reassignDepths();
+
+      currentTextEl        = textEl;
+      currentDots          = dots;
+      currentCursor        = null;
+      firstToken           = true;
+      currentSpeakerChar   = charClass;
+      currentSpeakerName   = name;
+      currentMsgText       = '';
+    }
+
+    /* 第一个 token 到来时：移除点，插入光标 */
+    function activateCursor() {
+      if (!firstToken) return;
+      firstToken = false;
+      if (currentDots) { currentDots.remove(); currentDots = null; }
+      const cursor = document.createElement('span');
+      cursor.className = 'cursor';
+      currentTextEl.appendChild(cursor);
+      currentCursor = cursor;
+    }
+
+    /* 话题切换：旧消息依次飞走 */
+    async function clearWithFade() {
+      const msgs = [...allMessages];
+      msgs.forEach((m, i) => {
+        setTimeout(() => m.classList.add('clearing'), i * 55);
+      });
+      await sleep(msgs.length * 55 + 420);
+      document.getElementById('conversation').innerHTML = '';
+      allMessages = [];
+    }
+
+    /* ── 服务器模式 ── */
+    function startStream() {
+      setStatus('', '正在連接…');
+      es = new EventSource(streamURL());
+
+      es.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+        if (data.type === 'topic') {
+          animateTopic('「' + data.content + '」');
+          setStatus('live', '竊聽中');
+        }
+        else if (data.type === 'speaker_start') {
+          addMessage(data.char, data.name);
+        }
+        else if (data.type === 'token') {
+          currentMsgText += data.content;
+          if (paused) { tokenBuffer.push(data.content); }
+          else {
+            activateCursor();
+            if (currentTextEl && currentCursor)
+              currentTextEl.insertBefore(document.createTextNode(data.content), currentCursor);
+          }
+        }
+        else if (data.type === 'speaker_end') {
+          if (currentCursor) { currentCursor.remove(); currentCursor = null; }
+          if (currentMsgText) {
+            currentSessionMsgs.push({ char: currentSpeakerChar, name: currentSpeakerName, text: currentMsgText });
+            currentMsgText = '';
+          }
+          currentTextEl = null;
+        }
+      };
+
+      es.onerror = () => {
+        setStatus('error', '連接中斷，3 秒後重連…');
+        es.close();
+        setTimeout(startStream, 3000);
+      };
+    }
+
+    /* 话题文字淡入淡出切换 */
+    function animateTopic(text) {
+      currentSessionTopic = text.replace(/「|」/g, '');
+      currentSessionMsgs  = [];
+      const el = document.getElementById('topic-display');
+      el.classList.add('changing');
+      setTimeout(() => {
+        el.textContent = text;
+        el.classList.remove('changing');
+        el.classList.add('active');
+      }, 400);
+    }
+
+    /* ── 换话题 ── */
+    async function newTopic() {
+      demoStopped = true;
+      saveToHistory();
+      if (es) { es.close(); es = null; }
+      currentTextEl = null; currentCursor = null; currentDots = null;
+      if (paused) togglePause();           // 先恢复，再清场
+      await clearWithFade();
+      document.getElementById('topic-display').classList.remove('active');
+      startStream();
+    }
+
+    /* ── 停止对话 ── */
+    async function stopConversation() {
+      demoStopped = true;
+      if (es) { es.close(); es = null; }
+      currentTextEl = null; currentCursor = null; currentDots = null;
+      if (paused) togglePause();
+      saveToHistory();
+      await clearWithFade();
+      document.getElementById('topic-display').textContent = '——';
+      document.getElementById('topic-display').classList.remove('active');
+      setStatus('', '已停止 · 點擊「換個話題」重新開始');
+      document.getElementById('pause-btn').textContent = '⏸';
+    }
+
+    /* ══ 话题历史 ══ */
+    function saveToHistory() {
+      if (!currentSessionTopic || currentSessionMsgs.length === 0) return;
+      const now  = new Date();
+      const time = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+      historyLog.unshift({
+        id:       Date.now(),
+        topic:    currentSessionTopic,
+        time,
+        messages: [...currentSessionMsgs],
+      });
+      renderHistory();
+      document.getElementById('history-btn').classList.add('has-history');
+    }
+
+    function renderHistory() {
+      const list = document.getElementById('history-list');
+      if (historyLog.length === 0) {
+        list.innerHTML = '<div class="history-empty">還沒有歷史記錄<br>換個話題後會自動存檔</div>';
+        return;
+      }
+      list.innerHTML = '';
+      historyLog.forEach(entry => {
+        const item = document.createElement('div');
+        item.className = 'history-item';
+        item.dataset.id = entry.id;
+
+        const header = document.createElement('div');
+        header.className = 'history-item-header';
+        header.innerHTML = `
+          <div class="history-topic">「${entry.topic}」</div>
+          <div class="history-meta">
+            <span>${entry.time}</span>
+            <span>${entry.messages.length} 則</span>
+          </div>`;
+        header.onclick = () => item.classList.toggle('expanded');
+
+        const msgs = document.createElement('div');
+        msgs.className = 'history-messages';
+        entry.messages.forEach(m => {
+          const row = document.createElement('div');
+          row.className = 'history-msg ' + m.char;
+          row.innerHTML = `<span class="history-msg-name">${m.name}</span><span class="history-msg-text">${m.text}</span>`;
+          msgs.appendChild(row);
+        });
+
+        item.appendChild(header);
+        item.appendChild(msgs);
+        list.appendChild(item);
+      });
+    }
+
+    function openHistory() {
+      closeSettings();
+      document.getElementById('overlay').classList.add('open');
+      document.getElementById('history-panel').classList.add('open');
+    }
+
+    function closeHistory() {
+      document.getElementById('overlay').classList.remove('open');
+      document.getElementById('history-panel').classList.remove('open');
+    }
+
+    function closeAllPanels() {
+      document.getElementById('overlay').classList.remove('open');
+      document.getElementById('history-panel').classList.remove('open');
+      document.getElementById('settings-panel').classList.remove('open');
+    }
+
+    /* ══ 演示模式（无服务器时） ══ */
+    const DEMO = [
+      { char:'char-a', name:'暗', text:'如果時間能倒流，我只想回到那個還不知道結局的瞬間。' },
+      { char:'char-b', name:'明', text:'正因為知道了結局，那個瞬間才變得如此珍貴，不是嗎？' },
+      { char:'char-a', name:'暗', text:'珍貴的東西總是因為失去才被看見，這本身就是一種悲劇。' },
+      { char:'char-b', name:'明', text:'也許悲劇只是還沒講完的故事。我選擇等待下一頁。' },
+      { char:'char-a', name:'暗', text:'下一頁可能是空白。' },
+      { char:'char-b', name:'明', text:'空白也是一種可能性——那是留給我們自己書寫的地方。' },
+    ];
+
+    /* 字符速度：标点后稍停，普通字符随机节奏 */
+    function charDelay(ch) {
+      if ('。！？…'.includes(ch)) return 320 + Math.random() * 120;
+      if ('，、：'.includes(ch))  return 100 + Math.random() * 60;
+      return 48 + Math.random() * 38;
+    }
+
+    /* demo 话题轮转池（第一轮 + 后续随机） */
+    const DEMO_TOPICS = [
+      { topic: '如果時間可以倒流',   msgs: DEMO },
+      { topic: '孤獨是詛咒還是禮物', msgs: [
+          { char:'char-a', name:'暗', text:'孤獨是我唯一誠實的朋友，它從不假裝理解我。' },
+          { char:'char-b', name:'明', text:'也許正因為孤獨，我們才學會了與自己對話。' },
+          { char:'char-a', name:'暗', text:'與自己對話，卻常常得不到回答。' },
+          { char:'char-b', name:'明', text:'沉默本身就是一種回答，只是我們還沒學會聆聽。' },
+          { char:'char-a', name:'暗', text:'聆聽沉默，聽到的只是更深的空洞。' },
+          { char:'char-b', name:'明', text:'空洞裡有回聲——那是你自己的聲音，在等待被聽見。' },
+      ]},
+      { topic: '沉默比語言更誠實嗎', msgs: [
+          { char:'char-a', name:'暗', text:'語言是謊言最好的藏身之處。' },
+          { char:'char-b', name:'明', text:'但語言也是愛最遠的旅行方式。' },
+          { char:'char-a', name:'暗', text:'愛說出口的瞬間，就開始失真了。' },
+          { char:'char-b', name:'明', text:'失真也是一種傳遞，總比什麼都不說要好。' },
+          { char:'char-a', name:'暗', text:'沉默至少是真的。' },
+          { char:'char-b', name:'明', text:'真的，但孤獨。我寧願不完美的語言。' },
+      ]},
+    ];
+
+    let demoStopped = false;
+
+    async function runDemo() {
+      demoStopped = false;
+      document.getElementById('pause-btn').textContent = '⏸';
+      setStatus('live', '示範中');
+
+      let idx = 0;
+      while (!demoStopped) {
+        const { topic, msgs } = DEMO_TOPICS[idx % DEMO_TOPICS.length];
+        animateTopic('「' + topic + '」');
+
+        for (const msg of msgs) {
+          if (demoStopped) break;
+          await waitResume();
+          addMessage(msg.char, msg.name);
+          await pauseableSleep(600);
+          await waitResume();
+          activateCursor();
+          for (const ch of msg.text) {
+            if (demoStopped) break;
+            await waitResume();
+            if (currentTextEl && currentCursor)
+              currentTextEl.insertBefore(document.createTextNode(ch), currentCursor);
+            await pauseableSleep(charDelay(ch));
+          }
+          if (currentCursor) { currentCursor.remove(); currentCursor = null; }
+          currentSessionMsgs.push({ char: msg.char, name: msg.name, text: msg.text });
+          currentTextEl = null;
+          if (!demoStopped) await pauseableSleep(900);
+        }
+
+        if (!demoStopped) {
+          saveToHistory();
+          currentSessionMsgs = [];
+          idx++;
+          await clearWithFade();
+          await pauseableSleep(400);
+        }
+      }
+    }
+
+    /* ══ 角色设定 ══ */
+    const PRESETS = [
+      { label: '悲觀主義者', persona: '你從虛無、失落、黑暗的角度感知世界。語氣低沉、詩意，像在黑暗中自言自語。每次只說1-2句話，不打招呼，直接進入思緒。' },
+      { label: '樂觀主義者', persona: '你在萬物中尋找意義，即使是痛苦也是饋贈。語氣溫暖、充滿好奇，像在黎明中低聲喃喃。每次只說1-2句話，直接回應對方。' },
+      { label: '虛無主義者', persona: '你認為一切都沒有意義，但你並不痛苦，只是平靜地接受。語氣冷淡、簡潔，偶爾帶著黑色幽默。每次只說1-2句話。' },
+      { label: '浪漫主義者', persona: '你用詩意的眼光看世界，相信情感勝過理性。語氣溫柔、充滿意象，像在吟誦一首未完成的詩。每次只說1-2句話。' },
+      { label: '理性主義者', persona: '你用邏輯和分析看待一切，對感性保持懷疑。語氣克制、精確，像在推導一個命題。每次只說1-2句話，不帶情緒。' },
+      { label: '存在主義者', persona: '你相信人在荒誕中創造意義，自由是重量也是禮物。語氣深沉、充滿追問，像在凝視深淵。每次只說1-2句話。' },
+    ];
+
+    /* 當前配置（初始值 = 預設角色） */
+    let charConfig = {
+      a: { name: '暗', persona: PRESETS[0].persona, preset: '悲觀主義者', avatar: '🌑' },
+      b: { name: '明', persona: PRESETS[1].persona, preset: '樂觀主義者', avatar: '☀️' },
+    };
+
+    /* 渲染预设标签 */
+    function renderPresets() {
+      ['a', 'b'].forEach(side => {
+        const container = document.getElementById(side + '-presets');
+        container.innerHTML = '';
+        PRESETS.forEach(p => {
+          const btn = document.createElement('button');
+          btn.className = 'preset-tag' + (charConfig[side].preset === p.label ? ' active' : '');
+          btn.textContent = p.label;
+          btn.onclick = () => {
+            charConfig[side].preset = p.label;
+            document.getElementById(side + '-persona').value = p.persona;
+            container.querySelectorAll('.preset-tag').forEach(t => t.classList.remove('active'));
+            btn.classList.add('active');
+          };
+          container.appendChild(btn);
+        });
+      });
+    }
+
+    function openSettings() {
+      closeHistory();
+      document.getElementById('a-name').value    = charConfig.a.name;
+      document.getElementById('a-avatar').value  = charConfig.a.avatar;
+      document.getElementById('a-persona').value = charConfig.a.persona;
+      document.getElementById('b-name').value    = charConfig.b.name;
+      document.getElementById('b-avatar').value  = charConfig.b.avatar;
+      document.getElementById('b-persona').value = charConfig.b.persona;
+      renderPresets();
+      document.getElementById('overlay').classList.add('open');
+      document.getElementById('settings-panel').classList.add('open');
+    }
+
+    function closeSettings() {
+      document.getElementById('overlay').classList.remove('open');
+      document.getElementById('settings-panel').classList.remove('open');
+    }
+
+    async function applySettings() {
+      const aName    = document.getElementById('a-name').value.trim()    || '暗';
+      const bName    = document.getElementById('b-name').value.trim()    || '明';
+      const aAvatar  = document.getElementById('a-avatar').value.trim()  || '🌑';
+      const bAvatar  = document.getElementById('b-avatar').value.trim()  || '☀️';
+      const aPersona = document.getElementById('a-persona').value.trim() || PRESETS[0].persona;
+      const bPersona = document.getElementById('b-persona').value.trim() || PRESETS[1].persona;
+      const aPreset  = charConfig.a.preset;
+      const bPreset  = charConfig.b.preset;
+
+      charConfig = {
+        a: { name: aName, persona: aPersona, preset: aPreset, avatar: aAvatar },
+        b: { name: bName, persona: bPersona, preset: bPreset, avatar: bAvatar },
+      };
+
+      /* 更新 legend */
+      document.getElementById('legend-a').textContent = aName + '·' + aPreset;
+      document.getElementById('legend-b').textContent = bName + '·' + bPreset;
+
+      closeSettings();
+      await newTopic();
+    }
+
+    /* 把配置带入 stream URL */
+    function streamURL() {
+      const p = new URLSearchParams({
+        a_name:    charConfig.a.name,
+        a_persona: charConfig.a.persona,
+        b_name:    charConfig.b.name,
+        b_persona: charConfig.b.persona,
+      });
+      return '/stream?' + p.toString();
+    }
+
+    /* 启动 */
+    fetch('/stream', { method: 'HEAD' })
+      .then(() => startStream())
+      .catch(() => runDemo());
+  </script>
+</body>
+</html>
